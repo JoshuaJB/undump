@@ -290,7 +290,8 @@ int undump_copy_phs(undumped_program *prog, struct core *c, struct program *p)
             if(chs[i].p_type != PT_LOAD || prog->segments[j].phdr.p_vaddr == chs[i].p_vaddr)
                 do_copy = 0;
         }
-        if(do_copy) {
+        // Don't copy if it's in the kernel's address space
+        if(do_copy && !(chs[i].p_vaddr & 0x8000000000000000)) {
             elf_add_segment(prog, &data[chs[i].p_offset], &chs[i]);
         }
     }
