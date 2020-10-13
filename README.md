@@ -41,3 +41,12 @@ text editor (such as `gedit`) crash and you need to call
 `gtk_text_buffer_get_text()` to recover your unsaved
 text from the core dump.
 
+## TODO
+1. Re-add library LOAD segments to the output binary
+2. Correctly re-locate sections if the original binary required dynamic loading
+
+## Additional Notes
+As of Linux 5.8, there is a bug in the ELF loader which
+prevents ELFs from having more than 156 program header
+entries. You will get "Exec format error" when you try
+to run the output binary when encountering this bug.
