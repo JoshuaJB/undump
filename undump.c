@@ -115,6 +115,14 @@ int _get_options(int argc, char **argv, struct options *op)
     data+=sizeof(what);\
 } while(0)
 
+#define ADD_INSTRUCTION_LL(data, inst, what) do {\
+    uint16_t tmp_inst_var = inst;\
+    memcpy((data), &(tmp_inst_var), 2);\
+    data += 2;\
+    memcpy((data), &(what), sizeof(what));\
+    data+=sizeof(what);\
+} while(0)
+
 #define ADD_LOAD_AX(data, what) do {\
     uint16_t tmp_inst_var = 0xb866;\
     memcpy((data), &tmp_inst_var, sizeof(uint16_t));\
@@ -136,29 +144,72 @@ char *_undump_get_machine_code(int size, struct core *c)
     regs *r = &st->pr_reg;
     char *data = malloc(size), *start;
     uint32_t tmp;
-    uint16_t flags;
     
     start = data;
 
+    // Copy segment registers
     ADD_LOAD_AX(data, r->ss);
-    printf("ss = %x, ", r->ss);
+    printf("ss = %lx, ", r->ss);
 
     ADD_INSTRUCTION_W(data, 0xd08e);
     ADD_LOAD_AX(data, r->ds);
-    printf("ds = %x, ", r->ds);
+    printf("ds = %lx, ", r->ds);
     
     ADD_INSTRUCTION_W(data, 0xd88e);
     ADD_LOAD_AX(data, r->es);
-    printf("es = %x, ", r->es);
+    printf("es = %lx, ", r->es);
     
     ADD_INSTRUCTION_W(data, 0xc08e);
     ADD_LOAD_AX(data, r->fs);
-    printf("fs = %x, ", r->fs);
+    printf("fs = %lx, ", r->fs);
     
     ADD_INSTRUCTION_W(data, 0xe08e);
     ADD_LOAD_AX(data, r->gs);
-    printf("gs = %x\n", r->gs); 
+    printf("gs = %lx\n", r->gs);
 
+#if defined(__x86_64__)
+#define REXW 0x0048
+#define REXWB 0x0049
+#define MOV 0xB800
+#define PUSHR 0x50
+    // See Tbl. 3-1 in Intel Vol 2A
+    // Watch out for endianess issues!
+
+    // Copy extended legacy registers
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0300, r->rbx);
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0100, r->rcx);
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0200, r->rdx);
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0600, r->rsi);
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0700, r->rdi);
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0500, r->rbp);
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0400, r->rsp);
+
+    // Copy x86_64-only registers
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0000, r->r8);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0100, r->r9);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0200, r->r10);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0300, r->r11);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0400, r->r12);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0500, r->r13);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0600, r->r14);
+    ADD_INSTRUCTION_LL(data, REXWB | MOV | 0x0700, r->r15);
+
+    // Put eflags in rax
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0000, r->eflags);
+    // Push rax to the stack
+    *(data++) = PUSHR | 0x00;
+    // POPFQ top of stack and zero-extend into RFLAGS
+    *(data++) = 0x9d;
+
+    // Put rip (instruction pointer) in rax
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0000, r->rip);
+    // Push rax to the stack
+    *(data++) = PUSHR | 0x00;
+    // Restore correct data to rax
+    ADD_INSTRUCTION_LL(data, REXW | MOV | 0x0000, r->rax);
+    // RET (near return)
+    ADD_INSTRUCTION_L(data, 0xc3, tmp);
+#else
     ADD_INSTRUCTION_L(data, 0xbb, r->ebx); /*movl to registers */
     ADD_INSTRUCTION_L(data, 0xb9, r->ecx);
     ADD_INSTRUCTION_L(data, 0xba, r->edx);
@@ -174,6 +225,7 @@ char *_undump_get_machine_code(int size, struct core *c)
     ADD_INSTRUCTION_L(data, 0x68, r->eip); /*pushl to return to previous location*/
     
     ADD_INSTRUCTION_L(data, 0xc3, tmp); 
+#endif
 
     return start;
 }
@@ -185,7 +237,7 @@ uint32_t undump_add_restore_seg(undumped_program *prog, struct core *c)
      * present. Instead, a simpler approach can be used, simply write the exact machine code...
      */
     
-    Elf32_Phdr phdr;
+    Elf_Phdr phdr;
     char *machine_code;
     int size = 256; /* should be more than enough */ 
 
@@ -209,9 +261,9 @@ uint32_t undump_add_restore_seg(undumped_program *prog, struct core *c)
 int undump_copy_phs(undumped_program *prog, struct core *c, struct program *p)
 {
     int i, j, num_copied = 0, do_copy = 0;
-    Elf32_Ehdr *c_header = elf_get_elf_header(c->core);
-    Elf32_Ehdr *p_header = elf_get_elf_header(p->prog);
-    Elf32_Phdr *phs, *chs;
+    Elf_Ehdr *c_header = elf_get_elf_header(c->core);
+    Elf_Ehdr *p_header = elf_get_elf_header(p->prog);
+    Elf_Phdr *phs, *chs;
     char *data;
 
     phs = elf_get_program_headers(p->prog);
@@ -251,7 +303,7 @@ int undump_write_undumped(int fd, undumped_program *p)
     int i;
     off_t off;
 
-    off = p->ehdr.e_phoff + (p->ehdr.e_phnum) * sizeof(Elf32_Phdr); 
+    off = p->ehdr.e_phoff + (p->ehdr.e_phnum) * sizeof(Elf_Phdr);
     off = PAGE_ALIGN(off);
     
     if(lseek(fd, off, SEEK_SET) < 0) /* For some unknown (to me) reason the offset has to be page aligned... */
@@ -261,7 +313,7 @@ int undump_write_undumped(int fd, undumped_program *p)
      * It's easier to calculate the offsets this way... */
 
     for(i=0; i < p->ehdr.e_phnum; i++) { 
-        printf("Writing segment with offset 0x%x, vaddr %p...", p->segments[i].phdr.p_offset, 
+        printf("Writing segment with offset 0x%lx, vaddr %p...", p->segments[i].phdr.p_offset,
                 (void*)p->segments[i].phdr.p_vaddr);
 
         if (!p->segments[i].segment) {
@@ -303,8 +355,7 @@ int undump_write_undumped(int fd, undumped_program *p)
 
 int undump_add_elf_segment(undumped_program *p)
 {
-    Elf32_Phdr phdr;
-    undump_segment *seg;
+    Elf_Phdr phdr;
 
     phdr.p_offset = 0;
     phdr.p_filesz = phdr.p_memsz = 0x54;
@@ -314,7 +365,7 @@ int undump_add_elf_segment(undumped_program *p)
     phdr.p_type   = PT_LOAD;
     phdr.p_flags  = PF_R | PF_X;
 
-    seg = elf_add_segment(p, NULL, &phdr);
+    elf_add_segment(p, NULL, &phdr);
     return 1;
 }
 

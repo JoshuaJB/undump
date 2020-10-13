@@ -2,9 +2,8 @@
 #define __CORE_H
 
 
-#include <elf.h>
-#include <unistd.h>
 #include <sys/types.h>
+#include "elfcommon.h"
 
 #define CORE_MAGIC "CORE\0\0\0\0"
 
@@ -161,7 +160,7 @@ typedef struct prstatus {       /* Information about thread; includes CPU reg*/
 
 struct core {
     char *core;   /* A pointer to the content of the file */
-    Elf32_Ehdr *header;
+    Elf_Ehdr *header;
     prstatus *status;
     int fd;
     off_t size;
@@ -169,7 +168,7 @@ struct core {
 
 struct core *load_core(char *filename);
 int core_parse_core(struct core *c, char *data);
-Elf32_Phdr *core_get_program_headers(struct core *c);
+Elf_Phdr *core_get_program_headers(struct core *c);
 prstatus *core_get_status(struct core *c);
 void dump_core_data(struct core *c);
 

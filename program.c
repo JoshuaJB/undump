@@ -35,7 +35,7 @@ struct program *prog_read_elf(const char *filename)
     if (p->prog == MAP_FAILED) 
         goto error;
    
-    p->header = (Elf32_Ehdr *)p->prog;
+    p->header = (Elf_Ehdr *)p->prog;
     return p;
 
 error:
@@ -47,17 +47,17 @@ error:
 }
 
 
-Elf32_Phdr *prog_get_program_headers(struct program *p)
+Elf_Phdr *prog_get_program_headers(struct program *p)
 {
     return elf_get_program_headers(p->prog);
 }
 
-Elf32_Shdr *prog_get_sections(struct program *p)
+Elf_Shdr *prog_get_sections(struct program *p)
 {
     return elf_get_sections(p->prog);
 }
 
-char *prog_get_section_name(struct program *p, Elf32_Shdr *s)
+char *prog_get_section_name(struct program *p, Elf_Shdr *s)
 {
     return elf_get_section_name(p->prog, s);
 }
@@ -65,21 +65,19 @@ char *prog_get_section_name(struct program *p, Elf32_Shdr *s)
 void dump_program_data(struct program *p)
 {
     int i;
-    Elf32_Phdr *ph;
-    Elf32_Shdr *s;
-
-    char str[256];
+    Elf_Phdr *ph;
+    Elf_Shdr *s;
 
     printf("Program: %p\n", p);
-    printf("ELF Type: %d, Flags: %x, Entry: %p\n", p->header->e_type, p->header->e_flags , p->header->e_entry);
+    printf("ELF Type: %d, Flags: %x, Entry: %p\n", p->header->e_type, p->header->e_flags, (void*)p->header->e_entry);
     printf("ELF Id: %c%c%c%c\n", p->header->e_ident[0], p->header->e_ident[1], p->header->e_ident[2],
         p->header->e_ident[3]);
 
     printf("Program Headers: %d\n", p->header->e_phnum);
     for (i=0; i < p->header->e_phnum; i++) {
         ph = &(prog_get_program_headers(p)[i]);
-        printf("\tProgram Header: Type: %p Off: %p Allign: %p VAddr: %p FSize: %d MemSize: %d\n", 
-                ph->p_type, ph->p_offset, ph->p_align, ph->p_vaddr, ph->p_filesz, ph->p_memsz); 
+        printf("\tProgram Header: Type: 0x%x Off: %p Align: %p VAddr: %p FSize: %ld MemSize: %ld\n",
+                ph->p_type, (void*)ph->p_offset, (void*)ph->p_align, (void*)ph->p_vaddr, ph->p_filesz, ph->p_memsz);
     }
 
     printf("\n\nSections: %d\n", p->header->e_shnum);
