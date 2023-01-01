@@ -17,26 +17,36 @@ struct core *load_core(char *filename)
     struct stat buf;
     int fd = -2;
 
-    if (!c) /* TODO: Add proper error reporting */        
+    if (!c) /* TODO: Add proper error reporting */ {
+        printf("cannot malloc\n");
         goto error;
+    }
 
     fd = open(filename, O_RDONLY);
-    if(fd < 0) 
+    if(fd < 0)  {
+        perror("Can't open core file");
         goto error;
+    }
 
     c->fd = fd;
 
-    if (fstat(fd, &buf) < 0)
+    if (fstat(fd, &buf) < 0) {
+        perror("Can't fstat");
         goto error;
+    }
     
     c->size = buf.st_size;
     c->core = (char *)mmap(NULL, buf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (c->core == MAP_FAILED) 
+    if (c->core == MAP_FAILED) {
+        perror("Can't map core");
         goto error;
+    }
    
 
-    if (!core_parse_core(c, c->core))
+    if (!core_parse_core(c, c->core)) {
+        printf("Can't parse core");
         goto error;
+    }
 
     return c;
 error:
@@ -63,17 +73,31 @@ int _core_read_note(struct core *c)
 
     segment = &c->core[ph->p_offset];
     nh = (Elf_Nhdr *)segment;
-    if(nh->n_type != NT_PRSTATUS) /* Not a core?? */
-        return 0;
-    if(memcmp(&segment[sizeof(*nh)], CORE_MAGIC, 8)) /* Should be CORE\0\0\0\0 */
-        return 0;
-    if(nh->n_descsz != sizeof(prstatus))
-        return 0;
-    s = &segment[sizeof(*nh) + 8];
-    c->status = (prstatus *)s;
+    int to_bail = 5;
+
+    while (to_bail-- > 0) {
+            if(nh->n_type != NT_PRSTATUS) {
+                printf("Type not NT_PRSTATUS (got %d, expected %d)\n", nh->n_type, NT_PRSTATUS);
+                nh = (Elf_Nhdr *)((char*)nh + sizeof(*nh) + ((nh->n_namesz+3)/4)*4 + ((nh->n_descsz+3)/4)*4);
+                if (to_bail == 0)
+                    return 0;
+                continue;
+            }
+            puts("Found NT_PRSTATUS");
+            if(memcmp(&segment[sizeof(*nh)], CORE_MAGIC, 8)) { /* Should be CORE\0\0\0\0 */
+                puts("Core magic not found");
+                return 0;
+            }
+            if(nh->n_descsz != sizeof(prstatus)) {
+                printf("Unexpected descriptor size: got %d expected %ld\n", nh->n_descsz, sizeof(prstatus));
+                return 0;
+            }
+            s = &segment[sizeof(*nh) + 8];
+            c->status = (prstatus *)s;
+    }
 
     /*TODO: FPU registers */
-    return 1;    
+    return 1;
 }
 
 int core_parse_core(struct core *c, char *data)
