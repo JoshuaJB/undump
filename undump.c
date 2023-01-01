@@ -402,11 +402,14 @@ int main(int argc, char *argv[])
     }
 
     struct core *c = load_core(op.core_file_name);
+    if (!c) {
+        perror("failed to load core");
+        return 3;
+    }
     struct program *p = prog_read_elf(op.program_file_name);
-
-    if(!c  || !p) {
-        perror("??");
-        return 2;
+    if (!p) {
+        perror("failed to read elf");
+        return 4;
     }
 
     dump_core_data(c);
